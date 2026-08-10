@@ -6,6 +6,7 @@ import rehypeRaw from 'rehype-raw';
 import { motion } from 'framer-motion';
 import { XAxis, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { GitBranch, Star, Users, ExternalLink, Activity, BookOpen, Terminal } from 'lucide-react';
+import MathCurveLoader from './MathCurveLoader';
 
 const USERNAME = 'Sp2736';
 
@@ -119,15 +120,14 @@ export default function GithubActivity({ isDarkMode }) {
   };
 
   useEffect(() => {
-    // eslint-disable-next-line
     fetchGithubData();
   }, []);
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-slate-400">
-        <Activity className="w-8 h-8 animate-spin mb-4" />
-        <p>Syncing with GitHub...</p>
+      <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-4">
+        <MathCurveLoader size={64} />
+        <p className="font-mono text-sm tracking-wide text-indigo-400">Syncing with GitHub API...</p>
       </div>
     );
   }

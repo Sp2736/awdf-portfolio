@@ -78,6 +78,14 @@
   }
 }
 
+/* Hide default cursor on all screens to use custom pointer */
+* {
+  cursor: none !important;
+}
+html, body {
+  cursor: none !important;
+}
+
 /* Reduced Motion Preference */
 @media (prefers-reduced-motion: reduce) {
   *,
