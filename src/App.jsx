@@ -8,7 +8,7 @@ import { Moon, Sun } from 'lucide-react';
 
 export default function App() {
   const [darkMode, setDarkMode] = useState(true);
-  const [currentView, setCurrentView] = useState('taskEngine'); // 'landing', 'resume', 'taskEngine'
+  const [currentView, setCurrentView] = useState('landing'); // 'landing', 'resume', 'taskEngine'
 
   useEffect(() => {
     if (darkMode) {
