@@ -1,8 +1,89 @@
+/* global process */
 import express from 'express';
 import cors from 'cors';
+import mongoose from 'mongoose';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/task-ui';
+
+// MongoDB Connection
+mongoose.connect(MONGO_URI)
+  .then(() => console.log('🍃 Connected to MongoDB successfully'))
+  .catch((err) => console.error('❌ MongoDB Connection Error:', err.message));
+
+// Task Schema & Model (Practical 5 + Task Manager)
+const taskSchema = new mongoose.Schema({
+  title: {
+    type: String,
+    required: [true, 'Task title is required'],
+    trim: true
+  },
+  description: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  completed: {
+    type: Boolean,
+    default: false
+  },
+  priority: {
+    type: String,
+    enum: ['low', 'medium', 'high'],
+    default: 'medium'
+  }
+}, {
+  timestamps: true
+});
+
+// Custom JSON transformation so _id is also accessible as id
+taskSchema.set('toJSON', {
+  virtuals: true,
+  transform: (doc, ret) => {
+    ret.id = ret._id.toString();
+    return ret;
+  }
+});
+
+const Task = mongoose.model('Task', taskSchema);
+
+// Seed initial default tasks if DB is empty
+const seedInitialTasks = async () => {
+  try {
+    const count = await Task.countDocuments();
+    if (count === 0) {
+      await Task.insertMany([
+        {
+          title: 'Design API Schema',
+          description: 'Structure REST endpoints for the task manager backend',
+          completed: true,
+          priority: 'high'
+        },
+        {
+          title: 'Implement Middleware Pipeline',
+          description: 'Add logging, content-type verification, and error handlers',
+          completed: false,
+          priority: 'medium'
+        },
+        {
+          title: 'Integrate Express with React',
+          description: 'Connect Practical 4 & 5 backend to the portfolio React frontend',
+          completed: false,
+          priority: 'high'
+        }
+      ]);
+      console.log('🌱 Default tasks seeded into MongoDB');
+    }
+  } catch (err) {
+    console.error('Error seeding initial tasks:', err.message);
+  }
+};
+
+mongoose.connection.once('open', seedInitialTasks);
 
 // Middleware
 app.use(cors());
@@ -31,77 +112,55 @@ app.use((req, res, next) => {
   next();
 });
 
-// In-memory data store for tasks
-let tasks = [
-  {
-    id: 1,
-    title: 'Design API Schema',
-    description: 'Structure REST endpoints for the task manager backend',
-    completed: true,
-    priority: 'high',
-    createdAt: '2026-08-10T10:00:00.000Z'
-  },
-  {
-    id: 2,
-    title: 'Implement Middleware Pipeline',
-    description: 'Add logging, content-type verification, and error handlers',
-    completed: false,
-    priority: 'medium',
-    createdAt: '2026-08-10T11:00:00.000Z'
-  },
-  {
-    id: 3,
-    title: 'Integrate Express with React',
-    description: 'Connect Practical 4 backend to the portfolio React frontend',
-    completed: false,
-    priority: 'high',
-    createdAt: '2026-08-10T12:00:00.000Z'
-  }
-];
-
-let nextId = 4;
-
-// 3. Route-specific middleware for validating task ID format
+// 3. Route-specific middleware for validating MongoDB ObjectId format or fallback numeric string
 const validateTaskId = (req, res, next) => {
-  const id = parseInt(req.params.id, 10);
-  if (isNaN(id) || id <= 0) {
+  const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
     return res.status(400).json({
       error: 'Invalid Task ID',
-      message: 'Task ID must be a positive integer'
+      message: 'Task ID must be a valid MongoDB ObjectId'
     });
   }
-  req.taskId = id;
   next();
 };
 
 // --- CRUD Endpoints ---
 
 // READ All Tasks: GET /tasks
-app.get('/tasks', (req, res) => {
-  res.status(200).json({
-    success: true,
-    count: tasks.length,
-    data: tasks
-  });
+app.get('/tasks', async (req, res, next) => {
+  try {
+    const tasks = await Task.find().sort({ createdAt: -1 });
+    res.status(200).json({
+      success: true,
+      count: tasks.length,
+      data: tasks
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // READ Single Task: GET /tasks/:id
-app.get('/tasks/:id', validateTaskId, (req, res) => {
-  const task = tasks.find(t => t.id === req.taskId);
-  if (!task) {
-    return res.status(404).json({
-      error: 'Not Found',
-      message: `Task with ID ${req.taskId} not found`
+app.get('/tasks/:id', validateTaskId, async (req, res, next) => {
+  try {
+    const task = await Task.findById(req.params.id);
+    if (!task) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: `Task with ID ${req.params.id} not found`
+      });
+    }
+    res.status(200).json({
+      success: true,
+      data: task
     });
+  } catch (err) {
+    next(err);
   }
-  res.status(200).json({
-    success: true,
-    data: task
-  });
 });
 
 // CREATE Task: POST /tasks
-app.post('/tasks', (req, res, next) => {
+app.post('/tasks', async (req, res, next) => {
   try {
     const { title, description, priority } = req.body;
 
@@ -112,16 +171,13 @@ app.post('/tasks', (req, res, next) => {
       });
     }
 
-    const newTask = {
-      id: nextId++,
+    const newTask = await Task.create({
       title: title.trim(),
       description: description ? description.trim() : '',
       completed: false,
-      priority: priority || 'medium',
-      createdAt: new Date().toISOString()
-    };
+      priority: priority || 'medium'
+    });
 
-    tasks.push(newTask);
     res.status(201).json({
       success: true,
       message: 'Task created successfully',
@@ -133,16 +189,8 @@ app.post('/tasks', (req, res, next) => {
 });
 
 // UPDATE Task: PUT /tasks/:id
-app.put('/tasks/:id', validateTaskId, (req, res, next) => {
+app.put('/tasks/:id', validateTaskId, async (req, res, next) => {
   try {
-    const taskIndex = tasks.findIndex(t => t.id === req.taskId);
-    if (taskIndex === -1) {
-      return res.status(404).json({
-        error: 'Not Found',
-        message: `Task with ID ${req.taskId} not found`
-      });
-    }
-
     const { title, description, completed, priority } = req.body;
 
     if (title !== undefined && (typeof title !== 'string' || title.trim() === '')) {
@@ -152,15 +200,25 @@ app.put('/tasks/:id', validateTaskId, (req, res, next) => {
       });
     }
 
-    const updatedTask = {
-      ...tasks[taskIndex],
-      ...(title !== undefined && { title: title.trim() }),
-      ...(description !== undefined && { description: description.trim() }),
-      ...(completed !== undefined && { completed: Boolean(completed) }),
-      ...(priority !== undefined && { priority })
-    };
+    const updateData = {};
+    if (title !== undefined) updateData.title = title.trim();
+    if (description !== undefined) updateData.description = description.trim();
+    if (completed !== undefined) updateData.completed = Boolean(completed);
+    if (priority !== undefined) updateData.priority = priority;
 
-    tasks[taskIndex] = updatedTask;
+    const updatedTask = await Task.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedTask) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: `Task with ID ${req.params.id} not found`
+      });
+    }
+
     res.status(200).json({
       success: true,
       message: 'Task updated successfully',
@@ -172,20 +230,19 @@ app.put('/tasks/:id', validateTaskId, (req, res, next) => {
 });
 
 // DELETE Task: DELETE /tasks/:id
-app.delete('/tasks/:id', validateTaskId, (req, res, next) => {
+app.delete('/tasks/:id', validateTaskId, async (req, res, next) => {
   try {
-    const taskIndex = tasks.findIndex(t => t.id === req.taskId);
-    if (taskIndex === -1) {
+    const deletedTask = await Task.findByIdAndDelete(req.params.id);
+    if (!deletedTask) {
       return res.status(404).json({
         error: 'Not Found',
-        message: `Task with ID ${req.taskId} not found`
+        message: `Task with ID ${req.params.id} not found`
       });
     }
 
-    const deletedTask = tasks.splice(taskIndex, 1)[0];
     res.status(200).json({
       success: true,
-      message: `Task with ID ${req.taskId} deleted successfully`,
+      message: `Task with ID ${req.params.id} deleted successfully`,
       data: deletedTask
     });
   } catch (err) {
@@ -202,14 +259,16 @@ app.use((req, res) => {
 });
 
 // 5. Global Error Handling Middleware (must be last)
-app.use((err, req, res, _next) => {
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
   console.error('[Global Error Handler]:', err.stack || err.message);
   res.status(500).json({
     error: 'Internal Server Error',
-    message: 'Something went wrong on the server'
+    message: err.message || 'Something went wrong on the server'
   });
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Task Manager REST API (Practical 4) running on http://localhost:${PORT}`);
+  console.log(`🚀 Task Manager REST API (Practicals 4 & 5 MongoDB) running on http://localhost:${PORT}`);
 });
+

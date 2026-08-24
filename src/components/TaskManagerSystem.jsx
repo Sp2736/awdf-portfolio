@@ -74,6 +74,11 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
   const [testResponse, setTestResponse] = useState(null);
   const [testLoading, setTestLoading] = useState(false);
 
+  // Action-specific loading & error states
+  const [togglingId, setTogglingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const [actionError, setActionError] = useState(null);
+
   // Reset to page 1 whenever filter changes
   const handleFilterChange = (f) => {
     setFilter(f);
@@ -109,7 +114,25 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
   };
 
   useEffect(() => {
-    fetchTasks();
+    let isMounted = true;
+    const loadInitialData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`${API_BASE}/tasks`);
+        if (!res.ok) {
+          throw new Error(`Server returned HTTP ${res.status}`);
+        }
+        const json = await res.json();
+        if (isMounted) setTasks(json.data || []);
+      } catch (err) {
+        if (isMounted) setError(err.message || 'Failed to connect to backend server');
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+    loadInitialData();
+    return () => { isMounted = false; };
   }, []);
 
   // Create Task
@@ -118,6 +141,7 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
     if (!newTitle.trim()) return;
 
     setSubmitting(true);
+    setActionError(null);
     try {
       const res = await fetch(`${API_BASE}/tasks`, {
         method: 'POST',
@@ -130,7 +154,7 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
       });
 
       if (!res.ok) {
-        const errJson = await res.json();
+        const errJson = await res.json().catch(() => ({}));
         throw new Error(errJson.message || 'Failed to create task');
       }
 
@@ -140,7 +164,7 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
       setCurrentPage(1); // Jump to first page to see newly added task
       await fetchTasks();
     } catch (err) {
-      alert(`Error creating task: ${err.message}`);
+      setActionError(`Create Error: ${err.message}`);
     } finally {
       setSubmitting(false);
     }
@@ -148,32 +172,48 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
 
   // Toggle Task Completion
   const handleToggleTask = async (task) => {
+    const taskId = task.id || task._id;
+    setTogglingId(taskId);
+    setActionError(null);
     try {
-      const res = await fetch(`${API_BASE}/tasks/${task.id}`, {
+      const res = await fetch(`${API_BASE}/tasks/${taskId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ completed: !task.completed })
       });
 
-      if (!res.ok) throw new Error('Failed to update task');
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.message || 'Failed to update task');
+      }
       await fetchTasks();
     } catch (err) {
-      alert(`Error updating task: ${err.message}`);
+      setActionError(`Update Error: ${err.message}`);
+    } finally {
+      setTogglingId(null);
     }
   };
 
   // Delete Task
-  const handleDeleteTask = async (id) => {
+  const handleDeleteTask = async (task) => {
+    const taskId = typeof task === 'object' ? (task.id || task._id) : task;
     if (!window.confirm('Are you sure you want to delete this task?')) return;
+    setDeletingId(taskId);
+    setActionError(null);
     try {
-      const res = await fetch(`${API_BASE}/tasks/${id}`, {
+      const res = await fetch(`${API_BASE}/tasks/${taskId}`, {
         method: 'DELETE'
       });
 
-      if (!res.ok) throw new Error('Failed to delete task');
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.message || 'Failed to delete task');
+      }
       await fetchTasks();
     } catch (err) {
-      alert(`Error deleting task: ${err.message}`);
+      setActionError(`Delete Error: ${err.message}`);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -533,6 +573,17 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
               </div>
             )}
 
+            {/* Action Specific Error Banner */}
+            {actionError && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 rounded-xl flex items-center justify-between text-amber-800 dark:text-amber-300 text-xs">
+                <div className="flex items-center gap-2">
+                  <AlertCircle size={14} className="shrink-0 text-amber-500" />
+                  <span>{actionError}</span>
+                </div>
+                <button onClick={() => setActionError(null)} className="font-bold underline text-[10px]">Dismiss</button>
+              </div>
+            )}
+
             {/* Tasks List */}
             {loading && tasks.length === 0 ? (
               <div className="py-16 text-center text-slate-400 flex flex-col items-center justify-center gap-3">
@@ -547,59 +598,71 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
               </div>
             ) : (
               <div className="space-y-3 min-h-[260px]">
-                {paginatedTasks.map((t) => (
-                  <div
-                    key={t.id}
-                    className="group flex items-start justify-between p-4 bg-slate-50 dark:bg-slate-800/40 hover:bg-slate-100/80 dark:hover:bg-slate-800/80 border border-slate-200/80 dark:border-slate-800 rounded-2xl transition-all"
-                  >
-                    <div className="flex items-start gap-3.5 min-w-0">
-                      <button
-                        onClick={() => handleToggleTask(t)}
-                        className="mt-0.5 text-slate-400 hover:text-indigo-500 transition-colors"
-                      >
-                        {t.completed ? (
-                          <CheckCircle2 size={20} className="text-emerald-500" />
-                        ) : (
-                          <Circle size={20} />
-                        )}
-                      </button>
+                {paginatedTasks.map((t) => {
+                  const tid = t.id || t._id;
+                  const isToggling = togglingId === tid;
+                  const isDeleting = deletingId === tid;
 
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`text-sm font-semibold ${t.completed ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-900 dark:text-white'}`}>
-                            {t.title}
-                          </span>
-                          
-                          <span className={`text-[10px] uppercase tracking-wider font-mono font-bold px-2 py-0.5 rounded-md ${
-                            t.priority === 'high' 
-                              ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-200 dark:border-rose-900'
-                              : t.priority === 'medium'
-                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-200 dark:border-amber-900'
-                              : 'bg-sky-100 text-sky-700 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-200 dark:border-sky-900'
-                          }`}>
-                            {t.priority || 'medium'}
-                          </span>
-
-                          <span className="text-[10px] font-mono text-slate-400">#{t.id}</span>
-                        </div>
-
-                        {t.description && (
-                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
-                            {t.description}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => handleDeleteTask(t.id)}
-                      className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors opacity-70 group-hover:opacity-100"
-                      title="Delete task"
+                  return (
+                    <div
+                      key={tid}
+                      className={`group flex items-start justify-between p-4 bg-slate-50 dark:bg-slate-800/40 hover:bg-slate-100/80 dark:hover:bg-slate-800/80 border border-slate-200/80 dark:border-slate-800 rounded-2xl transition-all ${
+                        isToggling || isDeleting ? 'opacity-50 pointer-events-none' : ''
+                      }`}
                     >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                ))}
+                      <div className="flex items-start gap-3.5 min-w-0">
+                        <button
+                          onClick={() => handleToggleTask(t)}
+                          disabled={isToggling || isDeleting}
+                          className="mt-0.5 text-slate-400 hover:text-indigo-500 transition-colors"
+                        >
+                          {isToggling ? (
+                            <RefreshCw size={20} className="animate-spin text-indigo-500" />
+                          ) : t.completed ? (
+                            <CheckCircle2 size={20} className="text-emerald-500" />
+                          ) : (
+                            <Circle size={20} />
+                          )}
+                        </button>
+
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-sm font-semibold ${t.completed ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-900 dark:text-white'}`}>
+                              {t.title}
+                            </span>
+                            
+                            <span className={`text-[10px] uppercase tracking-wider font-mono font-bold px-2 py-0.5 rounded-md ${
+                              t.priority === 'high' 
+                                ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-200 dark:border-rose-900'
+                                : t.priority === 'medium'
+                                ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-200 dark:border-amber-900'
+                                : 'bg-sky-100 text-sky-700 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-200 dark:border-sky-900'
+                            }`}>
+                              {t.priority || 'medium'}
+                            </span>
+
+                            <span className="text-[10px] font-mono text-slate-400 truncate max-w-[120px]">#{tid}</span>
+                          </div>
+
+                          {t.description && (
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
+                              {t.description}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleDeleteTask(t)}
+                        disabled={isToggling || isDeleting}
+                        className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors opacity-70 group-hover:opacity-100"
+                        title="Delete task"
+                      >
+                        {isDeleting ? <RefreshCw size={16} className="animate-spin text-rose-500" /> : <Trash2 size={16} />}
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
