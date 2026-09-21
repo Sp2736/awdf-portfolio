@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   CheckCircle2, 
   Circle, 
@@ -53,6 +53,13 @@ const METHOD_EXAMPLES = {
 
 export default function TaskManagerSystem({ darkMode, setDarkMode }) {
   const [tasks, setTasks] = useState([]);
+  const [token, setToken] = useState(() => localStorage.getItem('task-ui-token'));
+  const [authMode, setAuthMode] = useState('login');
+  const [authName, setAuthName] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
@@ -79,6 +86,44 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
   const [deletingId, setDeletingId] = useState(null);
   const [actionError, setActionError] = useState(null);
 
+  const authFetch = useCallback((path, options = {}) => {
+    const headers = new Headers(options.headers || {});
+    headers.set('Authorization', `Bearer ${token}`);
+    return fetch(`${API_BASE}${path}`, { ...options, headers });
+  }, [token]);
+
+  const handleAuthSubmit = async (event) => {
+    event.preventDefault();
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const response = await fetch(`${API_BASE}/auth/${authMode}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...(authMode === 'register' ? { name: authName } : {}),
+          email: authEmail,
+          password: authPassword
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'Authentication failed');
+      localStorage.setItem('task-ui-token', payload.token);
+      setToken(payload.token);
+      setAuthPassword('');
+    } catch (err) {
+      setAuthError(err.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('task-ui-token');
+    setToken(null);
+    setTasks([]);
+  };
+
   // Reset to page 1 whenever filter changes
   const handleFilterChange = (f) => {
     setFilter(f);
@@ -100,7 +145,7 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/tasks`);
+      const res = await authFetch('/tasks');
       if (!res.ok) {
         throw new Error(`Server returned HTTP ${res.status}`);
       }
@@ -119,7 +164,7 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`${API_BASE}/tasks`);
+        const res = await authFetch('/tasks');
         if (!res.ok) {
           throw new Error(`Server returned HTTP ${res.status}`);
         }
@@ -133,7 +178,7 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
     };
     loadInitialData();
     return () => { isMounted = false; };
-  }, []);
+  }, [authFetch, token]);
 
   // Create Task
   const handleCreateTask = async (e) => {
@@ -143,7 +188,7 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
     setSubmitting(true);
     setActionError(null);
     try {
-      const res = await fetch(`${API_BASE}/tasks`, {
+      const res = await authFetch('/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -176,7 +221,7 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
     setTogglingId(taskId);
     setActionError(null);
     try {
-      const res = await fetch(`${API_BASE}/tasks/${taskId}`, {
+      const res = await authFetch(`/tasks/${taskId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ completed: !task.completed })
@@ -201,7 +246,7 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
     setDeletingId(taskId);
     setActionError(null);
     try {
-      const res = await fetch(`${API_BASE}/tasks/${taskId}`, {
+      const res = await authFetch(`/tasks/${taskId}`, {
         method: 'DELETE'
       });
 
@@ -239,7 +284,7 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
         options.body = testBody;
       }
 
-      const res = await fetch(`${API_BASE}${testEndpoint}`, options);
+      const res = await authFetch(testEndpoint, options);
       const endTime = performance.now();
       const status = res.status;
       const statusText = res.statusText;
@@ -285,6 +330,38 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
   const validCurrentPage = Math.min(currentPage, totalPages);
   const startIndex = (validCurrentPage - 1) * ITEMS_PER_PAGE;
   const paginatedTasks = filteredTasks.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+
+  if (!token) {
+    return (
+      <div className="max-w-md mx-auto px-4 py-16 relative z-10">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 shadow-2xl text-slate-900 dark:text-white">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <p className="text-xs font-mono uppercase tracking-wider text-indigo-500">Task Flow Engine</p>
+              <h1 className="text-2xl font-extrabold mt-1">{authMode === 'login' ? 'Welcome back' : 'Create your account'}</h1>
+            </div>
+            <button type="button" onClick={() => setDarkMode(!darkMode)} className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800" title="Toggle theme">
+              {darkMode ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+          </div>
+          <form onSubmit={handleAuthSubmit} className="space-y-4">
+            {authMode === 'register' && (
+              <input value={authName} onChange={(event) => setAuthName(event.target.value)} placeholder="Full name" required minLength={2} className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700" />
+            )}
+            <input type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="Email address" required className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700" />
+            <input type="password" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} placeholder="Password (8+ characters)" required minLength={8} className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700" />
+            {authError && <p className="text-sm text-rose-500">{authError}</p>}
+            <button type="submit" disabled={authLoading} className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold">
+              {authLoading ? 'Authenticating...' : authMode === 'login' ? 'Log in' : 'Register'}
+            </button>
+          </form>
+          <button type="button" onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(null); }} className="w-full mt-4 text-sm text-indigo-500 hover:text-indigo-400">
+            {authMode === 'login' ? 'Need an account? Register' : 'Already registered? Log in'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8 relative z-10">
@@ -340,6 +417,7 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
 
             <MathCurveLoader size={40} />
           </div>
+            <button type="button" onClick={handleLogout} className="text-xs font-mono text-slate-500 hover:text-rose-500">Log out</button>
         </div>
 
         {/* Top-Right Bento Item: REST API Studio (5 Cols) */}
