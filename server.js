@@ -3,20 +3,30 @@ import express from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/task-ui';
+const JWT_SECRET = process.env.JWT_SECRET || 'development-only-change-me';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
 
 // MongoDB Connection
 mongoose.connect(MONGO_URI)
-  .then(() => console.log('🍃 Connected to MongoDB successfully'))
-  .catch((err) => console.error('❌ MongoDB Connection Error:', err.message));
+  .then(() => console.log('Connected to MongoDB successfully'))
+  .catch((err) => console.error('MongoDB Connection Error:', err.message));
 
 // Task Schema & Model (Practical 5 + Task Manager)
 const taskSchema = new mongoose.Schema({
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true
+  },
   title: {
     type: String,
     required: [true, 'Task title is required'],
@@ -51,39 +61,13 @@ taskSchema.set('toJSON', {
 
 const Task = mongoose.model('Task', taskSchema);
 
-// Seed initial default tasks if DB is empty
-const seedInitialTasks = async () => {
-  try {
-    const count = await Task.countDocuments();
-    if (count === 0) {
-      await Task.insertMany([
-        {
-          title: 'Design API Schema',
-          description: 'Structure REST endpoints for the task manager backend',
-          completed: true,
-          priority: 'high'
-        },
-        {
-          title: 'Implement Middleware Pipeline',
-          description: 'Add logging, content-type verification, and error handlers',
-          completed: false,
-          priority: 'medium'
-        },
-        {
-          title: 'Integrate Express with React',
-          description: 'Connect Practical 4 & 5 backend to the portfolio React frontend',
-          completed: false,
-          priority: 'high'
-        }
-      ]);
-      console.log('🌱 Default tasks seeded into MongoDB');
-    }
-  } catch (err) {
-    console.error('Error seeding initial tasks:', err.message);
-  }
-};
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true, trim: true, maxlength: 80 },
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  password: { type: String, required: true, select: false }
+}, { timestamps: true });
 
-mongoose.connection.once('open', seedInitialTasks);
+const User = mongoose.model('User', userSchema);
 
 // Middleware
 app.use(cors());
@@ -124,12 +108,101 @@ const validateTaskId = (req, res, next) => {
   next();
 };
 
+const authenticateToken = (req, res, next) => {
+  const authorization = req.headers.authorization;
+  const token = authorization?.startsWith('Bearer ') ? authorization.slice(7) : null;
+
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized', message: 'A Bearer token is required' });
+  }
+
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Unauthorized', message: 'Token is invalid or expired' });
+  }
+};
+
+const isValidEmail = (email) => typeof email === 'string'
+  && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+const validateAuthPayload = (req, res, next) => {
+  const { name, email, password } = req.body || {};
+  if (req.path.endsWith('/register') && (typeof name !== 'string' || name.trim().length < 2)) {
+    return res.status(400).json({ error: 'Validation Error', message: 'Name must be at least 2 characters' });
+  }
+  if (!isValidEmail(email)) {
+    return res.status(400).json({ error: 'Validation Error', message: 'A valid email is required' });
+  }
+  if (typeof password !== 'string' || password.length < 8) {
+    return res.status(400).json({ error: 'Validation Error', message: 'Password must be at least 8 characters' });
+  }
+  next();
+};
+
+const validateTaskPayload = (req, res, next) => {
+  const body = req.body || {};
+  const allowedPriorities = ['low', 'medium', 'high'];
+  if (req.method === 'POST' && (typeof body.title !== 'string' || !body.title.trim())) {
+    return res.status(400).json({ error: 'Validation Error', message: 'Task title is required' });
+  }
+  if (body.title !== undefined && (typeof body.title !== 'string' || !body.title.trim())) {
+    return res.status(400).json({ error: 'Validation Error', message: 'Task title cannot be empty' });
+  }
+  if (body.description !== undefined && typeof body.description !== 'string') {
+    return res.status(400).json({ error: 'Validation Error', message: 'Description must be a string' });
+  }
+  if (body.priority !== undefined && !allowedPriorities.includes(body.priority)) {
+    return res.status(400).json({ error: 'Validation Error', message: 'Priority must be low, medium, or high' });
+  }
+  if (body.completed !== undefined && typeof body.completed !== 'boolean') {
+    return res.status(400).json({ error: 'Validation Error', message: 'Completed must be a boolean' });
+  }
+  next();
+};
+
+const signToken = (user) => jwt.sign({ id: user._id.toString(), email: user.email }, JWT_SECRET, {
+  expiresIn: JWT_EXPIRES_IN
+});
+
+app.post('/auth/register', validateAuthPayload, async (req, res, next) => {
+  try {
+    const email = req.body.email.trim().toLowerCase();
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({ error: 'Conflict', message: 'An account with this email already exists' });
+    }
+    const password = await bcrypt.hash(req.body.password, 12);
+    const user = await User.create({ name: req.body.name.trim(), email, password });
+    res.status(201).json({ success: true, token: signToken(user), user: { id: user.id, name: user.name, email: user.email } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/auth/login', validateAuthPayload, async (req, res, next) => {
+  try {
+    const email = req.body.email.trim().toLowerCase();
+    const user = await User.findOne({ email }).select('+password');
+    const validPassword = user && await bcrypt.compare(req.body.password, user.password);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'Invalid email or password' });
+    }
+    res.status(200).json({ success: true, token: signToken(user), user: { id: user.id, name: user.name, email: user.email } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.use('/tasks', authenticateToken);
+
 // --- CRUD Endpoints ---
 
 // READ All Tasks: GET /tasks
 app.get('/tasks', async (req, res, next) => {
   try {
-    const tasks = await Task.find().sort({ createdAt: -1 });
+    const tasks = await Task.find({ user: req.user.id }).sort({ createdAt: -1 });
     res.status(200).json({
       success: true,
       count: tasks.length,
@@ -143,7 +216,7 @@ app.get('/tasks', async (req, res, next) => {
 // READ Single Task: GET /tasks/:id
 app.get('/tasks/:id', validateTaskId, async (req, res, next) => {
   try {
-    const task = await Task.findById(req.params.id);
+    const task = await Task.findOne({ _id: req.params.id, user: req.user.id });
     if (!task) {
       return res.status(404).json({
         error: 'Not Found',
@@ -160,18 +233,12 @@ app.get('/tasks/:id', validateTaskId, async (req, res, next) => {
 });
 
 // CREATE Task: POST /tasks
-app.post('/tasks', async (req, res, next) => {
+app.post('/tasks', validateTaskPayload, async (req, res, next) => {
   try {
     const { title, description, priority } = req.body;
 
-    if (!title || typeof title !== 'string' || title.trim() === '') {
-      return res.status(400).json({
-        error: 'Validation Error',
-        message: 'Task title is required'
-      });
-    }
-
     const newTask = await Task.create({
+      user: req.user.id,
       title: title.trim(),
       description: description ? description.trim() : '',
       completed: false,
@@ -189,16 +256,9 @@ app.post('/tasks', async (req, res, next) => {
 });
 
 // UPDATE Task: PUT /tasks/:id
-app.put('/tasks/:id', validateTaskId, async (req, res, next) => {
+app.put('/tasks/:id', validateTaskId, validateTaskPayload, async (req, res, next) => {
   try {
     const { title, description, completed, priority } = req.body;
-
-    if (title !== undefined && (typeof title !== 'string' || title.trim() === '')) {
-      return res.status(400).json({
-        error: 'Validation Error',
-        message: 'Task title cannot be empty'
-      });
-    }
 
     const updateData = {};
     if (title !== undefined) updateData.title = title.trim();
@@ -206,8 +266,8 @@ app.put('/tasks/:id', validateTaskId, async (req, res, next) => {
     if (completed !== undefined) updateData.completed = Boolean(completed);
     if (priority !== undefined) updateData.priority = priority;
 
-    const updatedTask = await Task.findByIdAndUpdate(
-      req.params.id,
+    const updatedTask = await Task.findOneAndUpdate(
+      { _id: req.params.id, user: req.user.id },
       updateData,
       { new: true, runValidators: true }
     );
@@ -232,7 +292,7 @@ app.put('/tasks/:id', validateTaskId, async (req, res, next) => {
 // DELETE Task: DELETE /tasks/:id
 app.delete('/tasks/:id', validateTaskId, async (req, res, next) => {
   try {
-    const deletedTask = await Task.findByIdAndDelete(req.params.id);
+    const deletedTask = await Task.findOneAndDelete({ _id: req.params.id, user: req.user.id });
     if (!deletedTask) {
       return res.status(404).json({
         error: 'Not Found',
@@ -262,6 +322,12 @@ app.use((req, res) => {
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   console.error('[Global Error Handler]:', err.stack || err.message);
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({
+      error: 'Validation Error',
+      message: 'Request body must contain valid JSON'
+    });
+  }
   res.status(500).json({
     error: 'Internal Server Error',
     message: err.message || 'Something went wrong on the server'
