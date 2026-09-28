@@ -5,8 +5,12 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import NodeCache from 'node-cache';
 
 dotenv.config();
+
+// Initialize in-memory cache
+const taskCache = new NodeCache({ stdTTL: 60 });
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -202,11 +206,27 @@ app.use('/tasks', authenticateToken);
 // READ All Tasks: GET /tasks
 app.get('/tasks', async (req, res, next) => {
   try {
+    const cacheKey = `tasks_${req.user.id}`;
+    const cachedTasks = taskCache.get(cacheKey);
+    
+    if (cachedTasks) {
+      return res.status(200).json({
+        success: true,
+        count: cachedTasks.length,
+        data: cachedTasks,
+        source: 'cache'
+      });
+    }
+
     const tasks = await Task.find({ user: req.user.id }).sort({ createdAt: -1 });
+    
+    taskCache.set(cacheKey, tasks);
+
     res.status(200).json({
       success: true,
       count: tasks.length,
-      data: tasks
+      data: tasks,
+      source: 'database'
     });
   } catch (err) {
     next(err);
@@ -245,6 +265,9 @@ app.post('/tasks', validateTaskPayload, async (req, res, next) => {
       priority: priority || 'medium'
     });
 
+    // Invalidate cache
+    taskCache.del(`tasks_${req.user.id}`);
+
     res.status(201).json({
       success: true,
       message: 'Task created successfully',
@@ -279,6 +302,9 @@ app.put('/tasks/:id', validateTaskId, validateTaskPayload, async (req, res, next
       });
     }
 
+    // Invalidate cache
+    taskCache.del(`tasks_${req.user.id}`);
+
     res.status(200).json({
       success: true,
       message: 'Task updated successfully',
@@ -299,6 +325,9 @@ app.delete('/tasks/:id', validateTaskId, async (req, res, next) => {
         message: `Task with ID ${req.params.id} not found`
       });
     }
+
+    // Invalidate cache
+    taskCache.del(`tasks_${req.user.id}`);
 
     res.status(200).json({
       success: true,
