@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense, lazy } from 'react';
 import LandingHero from './components/LandingHero';
-import Resume from './components/Resume';
-import TaskManagerSystem from './components/TaskManagerSystem';
 import GlobalCustomCursor from './components/GlobalCustomCursor';
 import DynamicMotionBackground from './components/DynamicMotionBackground';
 import { Moon, Sun } from 'lucide-react';
+import MathCurveLoader from './components/MathCurveLoader'; // Need a loader
+
+const Resume = lazy(() => import('./components/Resume'));
+const TaskManagerSystem = lazy(() => import('./components/TaskManagerSystem'));
 
 export default function App() {
   const [darkMode, setDarkMode] = useState(true);
@@ -22,6 +24,16 @@ export default function App() {
     setCurrentView('resume');
     window.scrollTo(0, 0);
   };
+
+  // Fallback UI
+  const FallbackUI = () => (
+    <div className="flex justify-center items-center h-screen w-full relative z-10 text-slate-800 dark:text-slate-200">
+      <div className="flex flex-col items-center gap-4">
+        {MathCurveLoader ? <MathCurveLoader size={60} /> : <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>}
+        <p className="font-mono text-sm tracking-wide animate-pulse">Loading component chunk...</p>
+      </div>
+    </div>
+  );
 
   return (
     <div className={`min-h-screen font-sans relative ${darkMode ? 'dark' : ''}`}>
@@ -81,13 +93,16 @@ export default function App() {
         {currentView === 'landing' && (
           <LandingHero onEnterResume={handleEnterResume} />
         )}
-        {currentView === 'resume' && (
-          <Resume darkMode={darkMode} setDarkMode={setDarkMode} />
-        )}
-        {currentView === 'taskEngine' && (
-          <TaskManagerSystem darkMode={darkMode} setDarkMode={setDarkMode} />
-        )}
+        <Suspense fallback={<FallbackUI />}>
+          {currentView === 'resume' && (
+            <Resume darkMode={darkMode} setDarkMode={setDarkMode} />
+          )}
+          {currentView === 'taskEngine' && (
+            <TaskManagerSystem darkMode={darkMode} setDarkMode={setDarkMode} />
+          )}
+        </Suspense>
       </main>
     </div>
   );
 }
+
