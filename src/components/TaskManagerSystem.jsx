@@ -62,6 +62,7 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
   const [authError, setAuthError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [notification, setNotification] = useState(null); // Toast notification state
   
   // Form State
   const [newTitle, setNewTitle] = useState('');
@@ -202,6 +203,10 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
         const errJson = await res.json().catch(() => ({}));
         throw new Error(errJson.message || 'Failed to create task');
       }
+
+      // Trigger Notification Popup
+      setNotification({ message: `Task "${newTitle}" created successfully!` });
+      setTimeout(() => setNotification(null), 3000);
 
       setNewTitle('');
       setNewDescription('');
@@ -792,6 +797,27 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
         </div>
 
       </div>
+
+      {/* Toast Notification Popup */}
+      {notification && (
+        <div className="fixed bottom-6 right-6 z-[100] transition-all duration-300 transform translate-y-0 opacity-100 animate-in fade-in slide-in-from-bottom-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl rounded-2xl p-4 flex items-center gap-4 min-w-[300px]">
+            <div className="h-10 w-10 rounded-full bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center shrink-0 border border-emerald-200 dark:border-emerald-500/30">
+              <CheckCircle2 size={20} className="text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                System Notification
+                <span className="flex h-2 w-2 relative">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+              </p>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">{notification.message}</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
