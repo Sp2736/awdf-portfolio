@@ -6,11 +6,27 @@ import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import NodeCache from 'node-cache';
+import { EventEmitter } from 'events';
 
 dotenv.config();
 
 // Initialize in-memory cache
 const taskCache = new NodeCache({ stdTTL: 60 });
+
+// Initialize Task Notification Emitter (Practical 10)
+const taskEmitter = new EventEmitter();
+
+// Setup Asynchronous Event Handler for 'task-created'
+taskEmitter.on('task-created', (taskDetails) => {
+  // Use setTimeout to simulate background processing and guarantee async execution
+  setTimeout(() => {
+    const timestamp = new Date().toISOString();
+    console.log(`\n[BACKGROUND EVENT HANDLER - ${timestamp}]`);
+    console.log(`🔔 Notification: New Task "${taskDetails.title}" was created.`);
+    console.log(`👤 Assigned User ID: ${taskDetails.userId}`);
+    console.log(`✅ Background processing complete.\n`);
+  }, 1500); // 1.5 seconds delay to demonstrate non-blocking nature
+});
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -268,10 +284,20 @@ app.post('/tasks', validateTaskPayload, async (req, res, next) => {
     // Invalidate cache
     taskCache.del(`tasks_${req.user.id}`);
 
+    // Emit background event (Practical 10)
+    taskEmitter.emit('task-created', {
+      title: newTask.title,
+      userId: req.user.id
+    });
+
+    const apiResponseTimestamp = new Date().toISOString();
+    console.log(`[API RESPONSE - ${apiResponseTimestamp}] Returning 201 Created immediately...`);
+
     res.status(201).json({
       success: true,
       message: 'Task created successfully',
-      data: newTask
+      data: newTask,
+      _api_timestamp: apiResponseTimestamp
     });
   } catch (err) {
     next(err);
