@@ -38,6 +38,9 @@ The application demonstrates a complete authenticated workflow:
 ```text
 awdf-portfolio/
 ├── server.js                     # Express API and Mongoose models
+├── Dockerfile.backend            # Production API image
+├── Dockerfile.frontend           # Multi-stage frontend image
+├── docker-compose.yml            # Frontend, API, and MongoDB services
 ├── src/
 │   ├── App.jsx                   # Portfolio and Task Engine views
 │   ├── main.jsx                  # React entry point
@@ -49,9 +52,25 @@ awdf-portfolio/
 └── vite.config.js                # Vite configuration
 ```
 
+## Run with Docker Compose
+
+Docker Desktop (or Docker Engine with the Compose plugin) is required. From the project directory, start the entire application with:
+
+```bash
+docker compose up --build
+```
+
+Open the frontend at `http://localhost:5173`. The API is also published at `http://localhost:5000`; MongoDB is available only to services on the internal Compose network. MongoDB data is persisted in the named `mongodb-data` volume. To stop the services, press Ctrl+C and run `docker compose down`; the database volume is kept. To remove the database data too, run `docker compose down -v`.
+
+The frontend sends API calls to `/api`; its Nginx server strips that prefix and proxies requests to the backend service, so the browser uses the frontend origin while containers communicate over the private `task-network`. Docker Compose DNS resolves `mongodb` to the database container. `localhost` inside the backend container would refer back to that backend container, not MongoDB.
+
+`EXPOSE` in a Dockerfile documents the port an image's process listens on; it does not publish that port on the host. The `ports` entries in Compose publish the frontend and API ports (`5173:80` and `5000:5000`) so they can be reached from the host. MongoDB needs no host port mapping because only the backend connects to it.
+
+The Docker builds install dependencies from the lockfile inside their build stages; `.dockerignore` excludes host `node_modules` and `.env` files. Copying `node_modules` from a developer machine can include OS-specific binaries, stale packages, or unnecessary files. For local Compose use, the JWT secret has a development-only fallback; set `JWT_SECRET` in the shell/environment before starting Compose for a non-development deployment.
+
 ## Prerequisites
 
-- Node.js 18 or newer
+- Node.js 22 or newer
 - npm
 - MongoDB running locally or a reachable MongoDB deployment
 
@@ -61,10 +80,7 @@ From the project directory:
 
 ```bash
 npm install
-npm install bcryptjs jsonwebtoken
 ```
-
-The second command ensures the API authentication dependencies are available in installations created from the current manifest.
 
 Create or update `.env`:
 

@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import MathCurveLoader from './MathCurveLoader';
 
-const API_BASE = 'http://localhost:5000';
+const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:5000';
 const ITEMS_PER_PAGE = 3;
 
 const METHOD_EXAMPLES = {

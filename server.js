@@ -116,6 +116,13 @@ app.use((req, res, next) => {
   next();
 });
 
+app.get('/health', (req, res) => {
+  const isDatabaseConnected = mongoose.connection.readyState === 1;
+  res.status(isDatabaseConnected ? 200 : 503).json({
+    status: isDatabaseConnected ? 'ok' : 'unavailable'
+  });
+});
+
 // 3. Route-specific middleware for validating MongoDB ObjectId format or fallback numeric string
 const validateTaskId = (req, res, next) => {
   const { id } = req.params;
@@ -392,4 +399,3 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`🚀 Task Manager REST API (Practicals 4 & 5 MongoDB) running on http://localhost:${PORT}`);
 });
-
