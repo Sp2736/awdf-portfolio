@@ -147,6 +147,10 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
     setError(null);
     try {
       const res = await authFetch('/tasks');
+      if (res.status === 401) {
+        handleLogout();
+        return;
+      }
       if (!res.ok) {
         throw new Error(`Server returned HTTP ${res.status}`);
       }
@@ -166,6 +170,10 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
       setError(null);
       try {
         const res = await authFetch('/tasks');
+        if (res.status === 401) {
+          if (isMounted) handleLogout();
+          return;
+        }
         if (!res.ok) {
           throw new Error(`Server returned HTTP ${res.status}`);
         }
