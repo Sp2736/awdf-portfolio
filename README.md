@@ -68,6 +68,12 @@ The frontend sends API calls to `/api`; its Nginx server strips that prefix and 
 
 The Docker builds install dependencies from the lockfile inside their build stages; `.dockerignore` excludes host `node_modules` and `.env` files. Copying `node_modules` from a developer machine can include OS-specific binaries, stale packages, or unnecessary files. For local Compose use, the JWT secret has a development-only fallback; set `JWT_SECRET` in the shell/environment before starting Compose for a non-development deployment.
 
+## Continuous Integration
+
+The GitHub Actions workflow in `.github/workflows/ci.yml` runs on every push to `main`. It installs dependencies with `npm install`, runs the automated tests with `npm test`, and builds the frontend with `npm run build`. A failed command marks the workflow run as failed; all green checks indicate the pipeline passed.
+
+The API base tests cover both the local-development default and the `/api` path used by Docker Compose. To see a test failure locally, temporarily change one expected value in `tests/api-base.test.js`, run `npm test`, then restore the expected value and rerun `npm test` to verify the pass state.
+
 ## Prerequisites
 
 - Node.js 22 or newer

@@ -16,8 +16,9 @@ import {
   Moon
 } from 'lucide-react';
 import MathCurveLoader from './MathCurveLoader';
+import { getApiBase } from '../utils/api-base.js';
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:5000';
+const API_BASE = getApiBase(import.meta.env.VITE_API_BASE);
 const ITEMS_PER_PAGE = 3;
 
 const METHOD_EXAMPLES = {
