@@ -23,6 +23,8 @@ services:
       MONGO_URI: mongodb://mongodb:27017/task-ui
       JWT_SECRET: ${JWT_SECRET:-development-only-change-me}
       JWT_EXPIRES_IN: 1h
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-lite}
       NODE_ENV: production
     ports:
       - "5000:5000"

@@ -64,6 +64,8 @@ Open the frontend at `http://localhost:5173`. The API is also published at `http
 
 The frontend sends API calls to `/api`; its Nginx server strips that prefix and proxies requests to the backend service, so the browser uses the frontend origin while containers communicate over the private `task-network`. Docker Compose DNS resolves `mongodb` to the database container. `localhost` inside the backend container would refer back to that backend container, not MongoDB.
 
+To enable Gemini task descriptions, add `GEMINI_API_KEY` to the ignored `.env` file. Compose passes it only to the backend container; it is never included in the frontend build. The backend uses Gemini 3.1 Flash-Lite. The authenticated `POST /api/ai/generate-description` endpoint accepts `{"title":"..."}`. If Gemini is not configured, times out, or returns an error, the backend returns an editable fallback description and the task form remains usable.
+
 `EXPOSE` in a Dockerfile documents the port an image's process listens on; it does not publish that port on the host. The `ports` entries in Compose publish the frontend and API ports (`5173:80` and `5000:5000`) so they can be reached from the host. MongoDB needs no host port mapping because only the backend connects to it.
 
 The Docker builds install dependencies from the lockfile inside their build stages; `.dockerignore` excludes host `node_modules` and `.env` files. Copying `node_modules` from a developer machine can include OS-specific binaries, stale packages, or unnecessary files. For local Compose use, the JWT secret has a development-only fallback; set `JWT_SECRET` in the shell/environment before starting Compose for a non-development deployment.
@@ -95,6 +97,8 @@ PORT=5000
 MONGO_URI=mongodb://127.0.0.1:27017/task-ui
 JWT_SECRET=replace-this-with-a-long-random-secret
 JWT_EXPIRES_IN=1h
+GEMINI_API_KEY=your-gemini-api-key
+GEMINI_MODEL=gemini-3.1-flash-lite
 ```
 
 Never commit a production JWT secret or real credentials. The included values are intended only for local development.

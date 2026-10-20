@@ -6,6 +6,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 COPY server.js ./server.js
+COPY src/utils/ai-description.js ./src/utils/ai-description.js
 
 ENV NODE_ENV=production
 

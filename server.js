@@ -7,6 +7,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import NodeCache from 'node-cache';
 import { EventEmitter } from 'events';
+import { generateTaskDescription } from './src/utils/ai-description.js';
 
 dotenv.config();
 
@@ -33,6 +34,8 @@ const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/task-ui';
 const JWT_SECRET = process.env.JWT_SECRET || 'development-only-change-me';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 
 // MongoDB Connection
 mongoose.connect(MONGO_URI)
@@ -191,6 +194,29 @@ const validateTaskPayload = (req, res, next) => {
 
 const signToken = (user) => jwt.sign({ id: user._id.toString(), email: user.email }, JWT_SECRET, {
   expiresIn: JWT_EXPIRES_IN
+});
+
+app.post('/ai/generate-description', authenticateToken, async (req, res) => {
+  const title = req.body?.title;
+  if (typeof title !== 'string' || !title.trim() || title.trim().length > 200) {
+    return res.status(400).json({
+      error: 'Validation Error',
+      message: 'Task title must be between 1 and 200 characters'
+    });
+  }
+
+  const result = await generateTaskDescription(title, {
+    apiKey: GEMINI_API_KEY,
+    model: GEMINI_MODEL
+  });
+  if (result.fallback) {
+    console.warn(`[AI description] Using fallback: ${result.reason}`);
+  }
+  return res.status(200).json({
+    description: result.description,
+    fallback: result.fallback,
+    ...(result.message ? { message: result.message } : {})
+  });
 });
 
 app.post('/auth/register', validateAuthPayload, async (req, res, next) => {

@@ -13,7 +13,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Sun,
-  Moon
+  Moon,
+  Sparkles
 } from 'lucide-react';
 import MathCurveLoader from './MathCurveLoader';
 import { getApiBase } from '../utils/api-base.js';
@@ -70,6 +71,8 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
   const [newDescription, setNewDescription] = useState('');
   const [newPriority, setNewPriority] = useState('medium');
   const [submitting, setSubmitting] = useState(false);
+  const [generatingDescription, setGeneratingDescription] = useState(false);
+  const [descriptionFeedback, setDescriptionFeedback] = useState('');
 
   // Filter & Pagination State
   const [filter, setFilter] = useState('all');
@@ -124,6 +127,30 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
     localStorage.removeItem('task-ui-token');
     setToken(null);
     setTasks([]);
+  };
+
+  const handleGenerateDescription = async () => {
+    if (!newTitle.trim()) return;
+
+    setGeneratingDescription(true);
+    setDescriptionFeedback('');
+    try {
+      const response = await authFetch('/ai/generate-description', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: newTitle })
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.message || 'Could not generate a description');
+      }
+      setNewDescription(payload.description);
+      setDescriptionFeedback(payload.message || 'Description generated with Gemini.');
+    } catch {
+      setDescriptionFeedback('AI is unavailable right now. You can still enter a description and save the task.');
+    } finally {
+      setGeneratingDescription(false);
+    }
   };
 
   // Reset to page 1 whenever filter changes
@@ -582,14 +609,34 @@ export default function TaskManagerSystem({ darkMode, setDarkMode }) {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Description</label>
-              <input
-                type="text"
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <label htmlFor="new-task-description" className="text-xs font-semibold text-slate-700 dark:text-slate-300">Description</label>
+                <button
+                  type="button"
+                  onClick={handleGenerateDescription}
+                  disabled={generatingDescription || !newTitle.trim()}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-indigo-300 dark:hover:bg-indigo-950/40"
+                >
+                  {generatingDescription ? <RefreshCw size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                  {generatingDescription ? 'Generating...' : 'Generate with Gemini'}
+                </button>
+              </div>
+              <textarea
+                id="new-task-description"
+                rows={3}
                 placeholder="Brief description (optional)"
                 value={newDescription}
-                onChange={(e) => setNewDescription(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                onChange={(e) => {
+                  setNewDescription(e.target.value);
+                  setDescriptionFeedback('');
+                }}
+                className="w-full resize-y px-4 py-2.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
               />
+              {descriptionFeedback && (
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400" role="status">
+                  {descriptionFeedback}
+                </p>
+              )}
             </div>
 
             <div>
